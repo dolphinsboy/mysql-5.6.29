@@ -1941,6 +1941,9 @@ int prepare_schema_table(THD *thd, LEX *lex, Table_ident *table_ident,
   DBUG_ENTER("prepare_schema_table");
 
   switch (schema_table_idx) {
+/*BEGIN GUOSONG MODIFICATION*/
+  case SCH_DISKUSAGE:
+/*END GUOSONG MODIFICATION*/
   case SCH_SCHEMATA:
 #if defined(DONT_ALLOW_SHOW_COMMANDS)
     my_message(ER_NOT_ALLOWED_COMMAND,

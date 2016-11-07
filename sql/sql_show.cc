@@ -203,6 +203,11 @@ bool show_disk_usage_command(THD *thd)
     my_dirend(dirp);
     DBUG_RETURN(FALSE);
 }
+
+int fill_disk_usage(THD *th, TABLE_LIST *tables, Item *cond)
+{
+    TABLE *table=
+}
 /*END GUOSONG MODIFICATION*/
 
 /***************************************************************************
@@ -8221,6 +8226,15 @@ ST_FIELD_INFO files_fields_info[]=
   {0, 0, MYSQL_TYPE_STRING, 0, 0, 0, SKIP_OPEN_TABLE}
 };
 
+/*BEGIN GUOSONG MODIFICATION*/
+ST_FIELD_INFO dis_usage_fields_info[]=
+{
+    {"DATABASE", 40, MYSQL_TYPE_STRING, 0, 0, NULL, SKIP_OPEN_TABLE},
+    {"Size_in_bytes",21, MYSQL_TYPE_LONG, 0, 0, NULL, SKIP_OPEN_TABLE},
+    {0, 0, MYSQL_TYPE_STRING, 0, 0, 0, SKIP_OPEN_TABLE}
+}
+/*END GUOSONG MODIFICATION*/
+
 void init_fill_schema_files_row(TABLE* table)
 {
   int i;
@@ -8327,6 +8341,10 @@ ST_SCHEMA_TABLE schema_tables[]=
    fill_schema_column_privileges, 0, 0, -1, -1, 0, 0},
   {"ENGINES", engines_fields_info, create_schema_table,
    fill_schema_engines, make_old_format, 0, -1, -1, 0, 0},
+  /*BEGIN GUOSONG MODIFICATION*/
+  {"DISKUAGE",disk_usage_fields_info, create_schema_table,
+  fill_disk_usage, make_old_format, 0, -1, -1, 0, 0},
+  /*END GUOSONG MODIFICATION*/
 #ifdef HAVE_EVENT_SCHEDULER
   {"EVENTS", events_fields_info, create_schema_table,
    Events::fill_schema_events, make_old_format, 0, -1, -1, 0, 0},

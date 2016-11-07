@@ -188,6 +188,7 @@ bool mysqld_show_storage_engines(THD *thd);
 bool mysqld_show_privileges(THD *thd);
 /*BEGIN GUOSONG MODIFICIATION*/
 bool show_disk_usage_command(THD *thd);
+int fill_disk_usage(THD *th, TABLE_LIST *tables, Item *cond);
 /*END GUOSONG MODIFICATION*/
 char *make_backup_log_name(char *buff, const char *name, const char* log_ext);
 void calc_sum_of_all_status(STATUS_VAR *to);
