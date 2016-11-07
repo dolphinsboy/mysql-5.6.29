@@ -125,25 +125,82 @@ static Item * make_cond_for_info_schema(Item *cond, TABLE_LIST *table);
 bool show_disk_usage_command(THD *thd)
 {
     List<Item> field_list;
+    List<LEX_STRING> dbs;
+    LEX_STRING *db_name;
+    char *path;
+    MY_DIR *dirp;
+    FILEINFO *file;
+    /*data file size*/
+    long long fsizes = 0;
+    /*log file size*/
+    long long lsizes = 0;
     Protocol *protocol = thd->protocol;
 
     DBUG_ENTER("show_disk_usage");
     field_list.push_back(new Item_empty_string("Database",50));
-    field_list.push_back(new Item_empty_string("Size_in_bytes",30));
+    field_list.push_back(new Item_return_int("Size_in_bytes",7,
+                MYSQL_TYPE_LONGLONG));
 
+    /*send the fields "Database" and "Size"*/
     if(protocol->send_result_set_metadata(&field_list,
                 Protocol::SEND_NUM_ROWS|
                 Protocol::SEND_EOF))
         DBUG_RETURN(TRUE);
+    /*get database directories*/
+    find_files_result res = find_files(thd, &dbs, 0, mysql_data_home,0,1,0);
+    if(res != FIND_FILES_OK)
+        DBUG_RETURN(1);
 
-    /*send test data*/
+    List_iterator_fast<LEX_STRING> it_dbs(dbs);
+    path = (char*)my_malloc(PATH_MAX, MYF(MY_ZEROFILL));
+    dirp = my_dir(mysql_data_home, MYF(MY_WANT_STAT));
+    fsizes = 0;
+    for(int i = 0; i < (int)dirp->number_off_files; i++)
+    {
+        file = dirp->dir_entry + i;
+        if (strncasecmp(file->name, "ibdata", 6) == 0)
+            fsizes = fsizes + file->mystat->st_size;
+        else if(strncasecmp(file->name, "ib", 2) == 0)
+            lsizes = lsizes + file->mystat->st_size;
+    }
+
+    /*send tablespace and log file data size*/
     protocol->prepare_for_resend();
-    protocol->store("test_row", system_charset_info);
-    protocol->store("1024", system_charset_info);
+    protocol->store("InnoDB Tablespace", system_charset_info);
+    protocol->store((long long)fsizes);
     if(protocol->write())
         DBUG_RETURN(TRUE);
 
+    protocol->prepare_for_resend();
+    protocol->store("Innodb Logs", system_charset_info);
+    protocol->store((long long)lsizes);
+    if(protocol->write())
+        DBUG_RETURN(TRUE);
+
+    /*send db size*/
+    while((db_name= it_dbs++))
+    {
+        fsizes = 0;
+        strcpy(path,mysql_data_home);
+        strcat(path,"/");
+        strcat(path, db_name->str);
+        dirp = my_dir(path, MYF(MY_WANT_STAT));
+        for(int i=0; i < (int)dirp->number_off_files; i++)
+        {
+            file = dirp->dir_entry + i;
+            fsizes = fsizes + file->mystat->st_size;
+        }
+
+        protocol->prepare_for_resend();
+        protocol->store(db_name->str, system_charset_info);
+        protocol->store((long long)fsizes);
+        if(protocol->write())
+            DBUG_RETURN(TRUE);
+    }
     my_eof(thd);
+
+    my_free(path);
+    my_dirend(dirp);
     DBUG_RETURN(FALSE);
 }
 /*END GUOSONG MODIFICATION*/
