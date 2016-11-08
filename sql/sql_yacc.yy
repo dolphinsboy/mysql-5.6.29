@@ -1187,6 +1187,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  DISK_SYM
 /*BEGIN GUOSONG MODIFICATION*/
 %token DISK_USAGE_SYM
+%token DBXP_SELECT_SYM
 /*END GUOSONG MODIFICATION*/
 %token  DISTINCT                      /* SQL-2003-R */
 %token  DIV_SYM
@@ -2066,6 +2067,9 @@ statement:
         | rollback
         | savepoint
         | select
+        /*BEGIN GUOSONG DBXP MODIFICIATION*/
+        | dbxp_select
+        /*END GUOSONG DBXP MODIFICATION*/
         | set
         | signal_stmt
         | show
@@ -8604,7 +8608,46 @@ opt_ignore_leaves:
   Select : retrieve data from table
 */
 
-
+/*BEGIN GUOSONG DBXP MODIFICATION*/
+dbxp_select:
+          DBXP_SELECT_SYM DBXP_select_options DBXP_select_item_list
+            DBXP_select_from
+          {
+            LEX *lex = Lex;
+            lex->sql_command = SQLCOM_DBXP_SELECT;
+          };
+DBXP_select_options:
+        | DISTINCT
+        {
+            Select->options |= SELECT_DISTINCT;
+        };
+DBXP_select_from:
+        FROM join_table_list DBXP_where_clause{};
+DBXP_select_item_list:
+        |DBXP_select_item_list ',' select_item
+        |select_item
+        |'*'
+        {
+             THD *thd = YYTHD;
+            Item *item = new (thd->mem_root)
+                            Item_field(&thd->lex->current_select->context,
+                                       NULL, NULL, "*");
+            if(item == NULL)
+                MYSQL_YYABORT;
+            if(add_item_to_list(thd, item))
+                MYSQL_YYABORT;
+            (thd->lex->current_select->with_wild)++;
+        };
+DBXP_where_clause:
+        /*empty*/ {Select->where=0;}
+        | WHERE expr
+        {
+            SELECT_LEX *select = Select;
+            select->where= $2;
+            if($2)
+                $2->top_level_item();
+        };
+/*END GUOSONG DBXP MODIFICATION*/
 select:
           select_init
           {

@@ -9053,6 +9053,9 @@ static void set_server_version(void)
   if (!strstr(MYSQL_SERVER_SUFFIX_STR, "-debug"))
     end= strmov(end, "-debug");
 #endif
+  /*BEGIN GUOSONG MODIFICATION*/
+  end= strmov(end, "-DBXP 2.0");
+  /*END GUOSONG MODIFICATION*/
   if (opt_log || opt_slow_log || opt_bin_log)
     strmov(end, "-log");                        // This may slow down system
 }

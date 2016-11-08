@@ -2658,6 +2658,34 @@ mysql_execute_command(THD *thd)
     res= execute_sqlcom_select(thd, all_tables);
     break;
   }
+/*BEGIN GUOSONG DBXP MODIFICATION*/
+  case SQLCOM_DBXP_SELECT:
+  {
+    List<Item> field_list;
+    Protocol *protocol = thd->protocol;
+    
+    /*build fields to client*/
+    field_list.push_back(new Item_int("Id",21));
+    field_list.push_back(new Item_empty_string("LastName", 40));
+    field_list.push_back(new Item_empty_string("FirstName",20));
+    field_list.push_back(new Item_empty_string("Gender",2));
+    if(protocol->send_result_set_metadata(&field_list,
+                Protocol::SEND_NUM_ROWS| Protocol::SEND_EOF))
+        DBUG_RETURN(TRUE);
+
+    protocol->prepare_for_resend();
+
+    protocol->store((long long)3);
+    protocol->store("Guo", system_charset_info);
+    protocol->store("Song", system_charset_info);
+    protocol->store("M", system_charset_info);
+    if(protocol->write())
+        DBUG_RETURN(TRUE);
+    
+    my_eof(thd);
+    break;
+  }
+/*END GUOSONG DBXP MODIFICATION*/
 case SQLCOM_PREPARE:
   {
     mysql_sql_stmt_prepare(thd);
