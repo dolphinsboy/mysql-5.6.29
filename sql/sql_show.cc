@@ -204,9 +204,77 @@ bool show_disk_usage_command(THD *thd)
     DBUG_RETURN(FALSE);
 }
 
-int fill_disk_usage(THD *th, TABLE_LIST *tables, Item *cond)
+int fill_disk_usage(THD *thd, TABLE_LIST *tables, Item *cond)
 {
-    TABLE *table=
+    TABLE *table= tables->table;
+    CHARSET_INFO *scs = system_charset_info;
+    List<Item> field_list;
+    List<LEX_STRING> dbs;
+    LEX_STRING  *db_name;
+    char *path;
+    MY_DIR *dirp;
+    FILEINFO *file;
+    long long fsizes = 0;
+    long long lsizes = 0;
+    DBUG_ENTER("fill_disk_usage");
+
+    find_files_result res = find_files(thd, &dbs, 0, mysql_data_home, 0, 1, NULL);
+
+    if(res != FIND_FILES_OK)
+        DBUG_RETURN(1);
+
+    List_iterator_fast<LEX_STRING> it_dbs(dbs);
+    path = (char*)my_malloc(PATH_MAX, MYF(MY_ZEROFILL));
+    dirp = my_dir(mysql_data_home, MYF(MY_WANT_STAT));
+
+    for(int i = 0; i < (int)dirp->number_off_files; i++)
+    {
+        file = dirp->dir_entry + i;
+        if(strncasecmp(file->name, "ibdata",6) == 0)
+            fsizes = fsizes + file->mystat->st_size;
+        else if(strncasecmp(file->name, "ib", 2) == 0)
+            lsizes = lsizes + file->mystat->st_size;
+    }
+
+    table->field[0]->store("InnoDB Tablespace",
+        strlen("InnoDB Tablespace"),scs);
+    table->field[1]->store((long long)fsizes, TRUE);
+    if(schema_table_store_record(thd, table))
+        DBUG_RETURN(1);
+    
+    table->field[0]->store("InnoDB Logs",
+        strlen("InnoDB Logs"),scs);
+    table->field[1]->store((long long)lsizes, TRUE);
+    if(schema_table_store_record(thd, table))
+        DBUG_RETURN(1);
+
+
+    while((db_name = it_dbs++))
+    {
+        fsizes = 0;
+        strcpy(path, mysql_data_home);
+        strcat(path, "/");
+        strcat(path, db_name->str);
+        dirp = my_dir(path, MYF(MY_WANT_STAT));
+
+        for(int i = 0; i < (int)dirp->number_off_files; i++)
+        {
+            file = dirp->dir_entry+i;
+            fsizes = fsizes + file->mystat->st_size;
+        }
+
+        restore_record(table, s->default_values);
+
+        table->field[0]->store(db_name->str,db_name->length, scs);
+        table->field[1]->store((long long)fsizes, TRUE);
+
+        if(schema_table_store_record(thd, table))
+            DBUG_RETURN(1);
+    }
+
+    my_free(path);
+    DBUG_RETURN(0);
+
 }
 /*END GUOSONG MODIFICATION*/
 
@@ -8227,12 +8295,12 @@ ST_FIELD_INFO files_fields_info[]=
 };
 
 /*BEGIN GUOSONG MODIFICATION*/
-ST_FIELD_INFO dis_usage_fields_info[]=
+ST_FIELD_INFO disk_usage_fields_info[]=
 {
     {"DATABASE", 40, MYSQL_TYPE_STRING, 0, 0, NULL, SKIP_OPEN_TABLE},
     {"Size_in_bytes",21, MYSQL_TYPE_LONG, 0, 0, NULL, SKIP_OPEN_TABLE},
     {0, 0, MYSQL_TYPE_STRING, 0, 0, 0, SKIP_OPEN_TABLE}
-}
+};
 /*END GUOSONG MODIFICATION*/
 
 void init_fill_schema_files_row(TABLE* table)
@@ -8339,12 +8407,12 @@ ST_SCHEMA_TABLE schema_tables[]=
    OPTIMIZE_I_S_TABLE|OPEN_VIEW_FULL},
   {"COLUMN_PRIVILEGES", column_privileges_fields_info, create_schema_table,
    fill_schema_column_privileges, 0, 0, -1, -1, 0, 0},
-  {"ENGINES", engines_fields_info, create_schema_table,
-   fill_schema_engines, make_old_format, 0, -1, -1, 0, 0},
   /*BEGIN GUOSONG MODIFICATION*/
-  {"DISKUAGE",disk_usage_fields_info, create_schema_table,
+  {"DISKUSAGE",disk_usage_fields_info, create_schema_table,
   fill_disk_usage, make_old_format, 0, -1, -1, 0, 0},
   /*END GUOSONG MODIFICATION*/
+  {"ENGINES", engines_fields_info, create_schema_table,
+   fill_schema_engines, make_old_format, 0, -1, -1, 0, 0},
 #ifdef HAVE_EVENT_SCHEDULER
   {"EVENTS", events_fields_info, create_schema_table,
    Events::fill_schema_events, make_old_format, 0, -1, -1, 0, 0},

@@ -22,3 +22,184 @@ SET(SPARTAN_SOURCES
     )
 MYSQL_ADD_PLUGIN(SPARTAN ${SPARTAN_SOURCES} STORAGE_ENGINE MANDATORY)
 ```
+
+## 在information_schema库中添加相关表
+
+### 1. 修改sql/handler.h添加表说明
+
+```c
+/*
+  Make sure that the order of schema_tables and enum_schema_tables are the same.
+*/
+enum enum_schema_tables
+{
+  SCH_CHARSETS= 0,
+  SCH_COLLATIONS,
+  SCH_COLLATION_CHARACTER_SET_APPLICABILITY,
+  SCH_COLUMNS,
+  SCH_COLUMN_PRIVILEGES,
+  /*BEGIN GUOSONG MODIFICATION*/
+  SCH_DISKUSAGE,
+  /*END GUOSONG MODIFICATION*/   
+...
+```
+
+### 2.修改sql/sql_parse.cc中的prepare_schema_table
+
+```c
+int prepare_schema_table(THD *thd, LEX *lex, Table_ident *table_ident,
+    ¦   ¦   ¦   ¦   ¦   ¦enum enum_schema_tables schema_table_idx)
+{
+  SELECT_LEX *schema_select_lex= NULL;
+  DBUG_ENTER("prepare_schema_table");
+
+  switch (schema_table_idx) {
+/*BEGIN GUOSONG MODIFICATION*/
+  case SCH_DISKUSAGE:
+/*END GUOSONG MODIFICATION*/
+  case SCH_SCHEMATA:
+```
+
+### 3.修改sql/sql_show.cc添加表对应的列说明
+
+```c
+/*BEGIN GUOSONG MODIFICATION*/
+ST_FIELD_INFO disk_usage_fields_info[]=
+{
+    {"DATABASE", 40, MYSQL_TYPE_STRING, 0, 0, NULL, SKIP_OPEN_TABLE},
+    {"Size_in_bytes",21, MYSQL_TYPE_LONG, 0, 0, NULL, SKIP_OPEN_TABLE},
+    {0, 0, MYSQL_TYPE_STRING, 0, 0, 0, SKIP_OPEN_TABLE}
+};
+/*END GUOSONG MODIFICATION*/
+```
+
+### 4.修改sql/sql_show.cc中的schema_tables数组
+
+```c
+ST_SCHEMA_TABLE schema_tables[]=
+{
+  {"CHARACTER_SETS", charsets_fields_info, create_schema_table, 
+   fill_schema_charsets, make_character_sets_old_format, 0, -1, -1, 0, 0},
+  {"COLLATIONS", collation_fields_info, create_schema_table, 
+   fill_schema_collation, make_old_format, 0, -1, -1, 0, 0},
+  {"COLLATION_CHARACTER_SET_APPLICABILITY", coll_charset_app_fields_info,
+   create_schema_table, fill_schema_coll_charset_app, 0, 0, -1, -1, 0, 0},
+  {"COLUMNS", columns_fields_info, create_schema_table, 
+   get_all_tables, make_columns_old_format, get_schema_column_record, 1, 2, 0,
+   OPTIMIZE_I_S_TABLE|OPEN_VIEW_FULL},
+  {"COLUMN_PRIVILEGES", column_privileges_fields_info, create_schema_table,
+   fill_schema_column_privileges, 0, 0, -1, -1, 0, 0},
+  /*BEGIN GUOSONG MODIFICATION*/
+  {"DISKUSAGE",disk_usage_fields_info, create_schema_table,
+  fill_disk_usage, make_old_format, 0, -1, -1, 0, 0},
+  /*END GUOSONG MODIFICATION*/
+  {"ENGINES", engines_fields_info, create_schema_table,
+   fill_schema_engines, make_old_format, 0, -1, -1, 0, 0}, 
+```
+
+**顺序和enum_shcema_tables对应**
+
+### 5.在sql/sql_show.cc添加fill_disk_usage函数
+
+```c
+int fill_disk_usage(THD *thd, TABLE_LIST *tables, Item *cond)
+{
+    TABLE *table= tables->table;
+    CHARSET_INFO *scs = system_charset_info;
+    List<Item> field_list;
+    List<LEX_STRING> dbs;
+    LEX_STRING  *db_name;
+    char *path;
+    MY_DIR *dirp;
+    FILEINFO *file;
+    long long fsizes = 0;
+    long long lsizes = 0;
+    DBUG_ENTER("fill_disk_usage");
+    find_files_result res = find_files(thd, &dbs, 0, mysql_data_home, 0, 1, NULL);
+    if(res != FIND_FILES_OK)
+        DBUG_RETURN(1);
+
+    List_iterator_fast<LEX_STRING> it_dbs(dbs);
+    path = (char*)my_malloc(PATH_MAX, MYF(MY_ZEROFILL));
+    dirp = my_dir(mysql_data_home, MYF(MY_WANT_STAT));
+
+    for(int i = 0; i < (int)dirp->number_off_files; i++)
+    {
+        file = dirp->dir_entry + i;
+        if(strncasecmp(file->name, "ibdata",6) == 0)
+            fsizes = fsizes + file->mystat->st_size;
+        else if(strncasecmp(file->name, "ib", 2) == 0)
+            lsizes = lsizes + file->mystat->st_size;
+    }
+    table->field[0]->store("InnoDB Tablespace",
+        strlen("InnoDB Tablespace"),scs);
+    table->field[1]->store((long long)fsizes, TRUE);
+    if(schema_table_store_record(thd, table))
+        DBUG_RETURN(1);
+    table->field[0]->store("InnoDB Logs",
+        strlen("InnoDB Logs"),scs);
+    table->field[1]->store((long long)lsizes, TRUE);
+    if(schema_table_store_record(thd, table))
+        DBUG_RETURN(1);
+
+    while((db_name = it_dbs++))
+    {
+        fsizes = 0;
+        strcpy(path, mysql_data_home);
+        strcat(path, "/");
+        strcat(path, db_name->str);
+        dirp = my_dir(path, MYF(MY_WANT_STAT));
+        for(int i = 0; i < (int)dirp->number_off_files; i++)
+        {
+            file = dirp->dir_entry + i;
+            fsizes = fsizes + file->mystat->st_size;
+        }
+        restore_record(table, s->default_values);
+        table->field[0]->store(db_name->str,db_name->length, scs);
+        table->field[1]->store((long long)fsizes, TRUE);
+
+        if(schema_table_store_record(thd, table))
+            DBUG_RETURN(1);
+    }
+
+    my_free(path);
+    DBUG_RETURN(0);
+}
+```
+
+### 6.结果展示
+
+```sql
+
+mysql> show disk_usage;
++--------------------+---------------+
+| Database           | Size_in_bytes |
++--------------------+---------------+
+| InnoDB Tablespace  |     104857600 |
+| Innodb Logs        |     201326592 |
+| mysql              |       1568529 |
+| performance_schema |        493639 |
+| test               |         35204 |
++--------------------+---------------+
+5 rows in set (0.01 sec)
+
+mysql> select * from information_schema.diskusage;
++--------------------+---------------+
+| DATABASE           | Size_in_bytes |
++--------------------+---------------+
+| InnoDB Tablespace  |     104857600 |
+| InnoDB Logs        |     201326592 |
+| mysql              |       1568529 |
+| performance_schema |        493639 |
+| test               |         35204 |
++--------------------+---------------+
+5 rows in set (0.01 sec)
+
+mysql> show create table information_schema.diskusage\G
+*************************** 1. row ***************************
+       Table: DISKUSAGE
+Create Table: CREATE TEMPORARY TABLE `DISKUSAGE` (
+  `DATABASE` varchar(40) NOT NULL DEFAULT '',
+  `Size_in_bytes` int(21) NOT NULL DEFAULT '0'
+) ENGINE=MEMORY DEFAULT CHARSET=utf8
+```
