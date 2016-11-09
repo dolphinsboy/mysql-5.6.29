@@ -203,3 +203,127 @@ Create Table: CREATE TEMPORARY TABLE `DISKUSAGE` (
   `Size_in_bytes` int(21) NOT NULL DEFAULT '0'
 ) ENGINE=MEMORY DEFAULT CHARSET=utf8
 ```
+
+## 添加DBXP_SELECT查询
+
+### 1.修改sql/lex.h添加DBXP_SELECT关键字
+
+```c
+static SYMBOL symbols[] = {   
+    ...
+    { "DBXP_SELECT", SYM(DBXP_SELECT_SYM)},
+    ...
+```
+
+### 2.修改sql/sql_yacc.yy添加相关token
+
+```c
+%token DBXP_SELECT_SYM
+```
+
+在%type <NONE>中添加语句标示
+
+```c
+%type <NONE>
+	...
+	dbxp_select
+	...
+```
+
+在statement中添加dbxp_select
+
+```c
+/* Verb clauses, except begin */
+statement:
+        | use
+		| xa
+	    /*BEGIN GUOSONG MODIFICATION*/
+        | dbxp_select
+        /*END GUOSONG MODIFICATION*/
+```
+
+添加语法解析对于的操作
+
+```c
+/*BEGIN GUOSONG DBXP MODIFICATION*/
+dbxp_select:
+    ¦   DBXP_SELECT_SYM
+    ¦   {
+    ¦   ¦   LEX *lex = Lex;
+    ¦   ¦   lex->sql_command = SQLCOM_DBXP_SELECT;
+    ¦   };
+
+/*END GUOSONG DBXP MODIFICATION*/
+```
+
+### 3.添加SQLCOM_DBXP_SELECT对应的处理函数
+
+#### 3.1 在sql/sql_cmd.h添加SQLCOM_DBXP_SELECT命令类型
+
+```c
+enum enum_sql_command {
+	  /*BEGIN GUOSONG MODIFICATION*/
+  	  SQLCOM_DBXP_SELECT,
+      SQLCOM_DBXP_EXPLAIN_SELECT,
+      /*END GUOSONG MODIFICATION*/
+```
+
+#### 3.2 修改sql/sql_parse.cc添加SQLCOM_DBXP_SELECT对应的处理分支
+
+mysql_execute_command函数中添加SQLCOM_DBXP_SELECT对应的处理分支
+
+```c
+/*BEGIN GUOSONG DBXP MODIFICATION*/
+  case SQLCOM_DBXP_SELECT:
+  {
+    List<Item> field_list;
+    Protocol *protocol = thd->protocol;
+    
+    /*build fields to client*/
+    field_list.push_back(new Item_int("Id",21));
+    field_list.push_back(new Item_empty_string("LastName", 40));
+    field_list.push_back(new Item_empty_string("FirstName",20));
+    field_list.push_back(new Item_empty_string("Gender",2));
+    if(protocol->send_result_set_metadata(&field_list,
+    ¦   ¦   ¦   Protocol::SEND_NUM_ROWS| Protocol::SEND_EOF))
+    ¦   DBUG_RETURN(TRUE);
+    
+    protocol->prepare_for_resend();
+
+    protocol->store((long long)3);
+    protocol->store("Guo", system_charset_info);
+    protocol->store("Song", system_charset_info);
+    protocol->store("M", system_charset_info);
+    if(protocol->write())
+    ¦   DBUG_RETURN(TRUE);
+    
+    my_eof(thd);
+    break;
+  }
+/*END GUOSONG DBXP MODIFICATION*/
+
+```
+### 4.重新执行make以及make install
+
+在5.6版本中,可以不需要执行下面的命令,make操作会自动执行
+
+```
+bison -y -d sql_yacc.yy
+mv y.tab.h sql_yacc.h
+mv y.tab.c sql_yacc.cc
+./gen_lex_hash > ./lex_hash.h
+```
+
+### 5. Demo
+
+```sql
+mysql> DBXP_SELECT;
++---+----------+-----------+--------+
+|   | LastName | FirstName | Gender |
++---+----------+-----------+--------+
+| 3 | Guo      | Song      | M      |
++---+----------+-----------+--------+
+1 row in set (0.00 sec)
+
+```
+
