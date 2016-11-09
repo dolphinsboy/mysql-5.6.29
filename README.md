@@ -327,5 +327,92 @@ mysql> DBXP_SELECT;
 +---+----------+-----------+--------+
 1 row in set (0.00 sec)
 
+mysql> DBXP_SELECT * from t;
+ERROR 1064 (42000): You have an error in your SQL syntax
+```
+可以看到目前只支持DBXP_SELECT单独查询,是因为在语法部分只写了DBXP_SELECT,下面添加其他处理分支.
+
+
+### 6. 完善
+
+**增加其他SQL语句判断**
+
+```c
+/*BEGIN GUOSONG DBXP MODIFICATION*/
+dbxp_select:
+        DBXP_SELECT_SYM DBXP_select_options DBXP_select_item_list
+            DBXP_select_from
+        {
+            LEX *lex = Lex;
+            lex->sql_command = SQLCOM_DBXP_SELECT;
+        };
+DBXP_select_options:
+        | DISTINCT
+        {
+            Select->options |= SELECT_DISTINCT;
+        };
+DBXP_select_item_list:
+        | DBXP_select_item_list ',' select_item
+        | select_item
+        | '*'
+        {
+            THD *thd = YYTHD;
+            Item *item = new(thd->mem_root)
+                    Item_field(&thd->lex->current_select->context,
+                               NULL, NULL, "*");
+            if(item == NULL)
+                MYSQL_YYABORT;
+            if(add_item_to_list(thd,item))
+                MYSQL_YYABORT;
+            (thd->lex->current_select->with_wild)++;
+        };
+DBXP_select_from:
+        FROM join_table_list DBXP_where_clause{};
+DBXP_where_clause:
+        /*empty*/ {Select->where=0;}
+        | WHERE expr
+        {
+            SELECT_LEX *select = Select;
+            select->where  = $2;
+            if($2)
+                $2->top_level_item();
+        };
+/*END GUOSONG DBXP MODIFICATION*/
+```
+
+**Demo**
+
+```sql
+mysql> DBXP_SELECT * from t;
++---+----------+-----------+--------+
+|   | LastName | FirstName | Gender |
++---+----------+-----------+--------+
+| 3 | Guo      | Song      | M      |
++---+----------+-----------+--------+
+1 row in set (0.00 sec)
+
+mysql> DBXP_SELECT distinct * from t;
++---+----------+-----------+--------+
+|   | LastName | FirstName | Gender |
++---+----------+-----------+--------+
+| 3 | Guo      | Song      | M      |
++---+----------+-----------+--------+
+1 row in set (0.00 sec)
+
+mysql> DBXP_SELECT distinct * from t where a=1;
++---+----------+-----------+--------+
+|   | LastName | FirstName | Gender |
++---+----------+-----------+--------+
+| 3 | Guo      | Song      | M      |
++---+----------+-----------+--------+
+1 row in set (0.00 sec)
+
+mysql> DBXP_SELECT distinct * from t where a=1 and b=2;
++---+----------+-----------+--------+
+|   | LastName | FirstName | Gender |
++---+----------+-----------+--------+
+| 3 | Guo      | Song      | M      |
++---+----------+-----------+--------+
+1 row in set (0.00 sec)
 ```
 
