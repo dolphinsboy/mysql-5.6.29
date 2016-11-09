@@ -221,6 +221,8 @@ static SYMBOL symbols[] = {
 %token DBXP_SELECT_SYM
 ```
 
+**以下两个部分主要实现DBXP_SELECT作为单独命令必要条件**
+
 在%type <NONE>中添加语句标示
 
 ```c
