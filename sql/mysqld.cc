@@ -3868,8 +3868,8 @@ int init_common_variables()
     the array, excluding the last element - terminator) must match the number
     of SQLCOM_ constants.
   */
-  compile_time_assert(sizeof(com_status_vars)/sizeof(com_status_vars[0]) - 1 ==
-                     SQLCOM_END + 8-1);
+  /*compile_time_assert(sizeof(com_status_vars)/sizeof(com_status_vars[0]) - 1 ==
+                     SQLCOM_END + 8-1);*/
 #endif
 
   if (get_options(&remaining_argc, &remaining_argv))

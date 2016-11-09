@@ -1861,6 +1861,9 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
         opt_limit_clause delete_limit_clause fields opt_values values
         opt_procedure_analyse_params
         handler
+        /*BEGIN GUOSONG MODIFICATION*/
+        dbxp_select
+        /*END GUOSONG MODIFICAION*/
         opt_precision opt_ignore opt_column opt_restrict
         grant revoke set lock unlock string_list field_options field_option
         field_opt_list opt_binary ascii unicode table_lock_list table_lock
@@ -2067,9 +2070,6 @@ statement:
         | rollback
         | savepoint
         | select
-        /*BEGIN GUOSONG DBXP MODIFICIATION*/
-        | dbxp_select
-        /*END GUOSONG DBXP MODIFICATION*/
         | set
         | signal_stmt
         | show
@@ -2081,6 +2081,9 @@ statement:
         | update
         | use
         | xa
+        /*BEGIN GUOSONG MODIFICATION*/
+        | dbxp_select
+        /*END GUOSONG MODIFICATION*/
         ;
 
 deallocate:
@@ -8610,43 +8613,12 @@ opt_ignore_leaves:
 
 /*BEGIN GUOSONG DBXP MODIFICATION*/
 dbxp_select:
-          DBXP_SELECT_SYM DBXP_select_options DBXP_select_item_list
-            DBXP_select_from
-          {
+        DBXP_SELECT_SYM
+        {
             LEX *lex = Lex;
             lex->sql_command = SQLCOM_DBXP_SELECT;
-          };
-DBXP_select_options:
-        | DISTINCT
-        {
-            Select->options |= SELECT_DISTINCT;
         };
-DBXP_select_from:
-        FROM join_table_list DBXP_where_clause{};
-DBXP_select_item_list:
-        |DBXP_select_item_list ',' select_item
-        |select_item
-        |'*'
-        {
-             THD *thd = YYTHD;
-            Item *item = new (thd->mem_root)
-                            Item_field(&thd->lex->current_select->context,
-                                       NULL, NULL, "*");
-            if(item == NULL)
-                MYSQL_YYABORT;
-            if(add_item_to_list(thd, item))
-                MYSQL_YYABORT;
-            (thd->lex->current_select->with_wild)++;
-        };
-DBXP_where_clause:
-        /*empty*/ {Select->where=0;}
-        | WHERE expr
-        {
-            SELECT_LEX *select = Select;
-            select->where= $2;
-            if($2)
-                $2->top_level_item();
-        };
+
 /*END GUOSONG DBXP MODIFICATION*/
 select:
           select_init
@@ -12499,7 +12471,7 @@ show_param:
           DISK_USAGE_SYM
           {
             LEX *lex = Lex;
-            lex->sql_command= SQLCOM_SHOW_DISK_USAGE;
+            lex->sql_command= SQLCOM_DBXP_SELECT;
           }
           |
           /*END GUOSONG MODIFICATION*/
