@@ -1,10 +1,10 @@
-## 说明
+## 一. 说明
 
 参照Expert MySQL代码,学习如何添加Spartan引擎以及如何添加新的SQL命令
 
 在5.1.45版本也实现类似的功能,具体参照[5.1.45版本的Demo](https://github.com/dolphinsboy/mysql-5.1.45/blob/master/README.md)
 
-## 不同之处
+## 二. 不同之处
 
 **在5.6.29版本中添加新的引擎**
 
@@ -23,7 +23,7 @@ SET(SPARTAN_SOURCES
 MYSQL_ADD_PLUGIN(SPARTAN ${SPARTAN_SOURCES} STORAGE_ENGINE MANDATORY)
 ```
 
-## 在information_schema库中添加相关表
+## 三. 在information_schema库中添加相关表
 
 ### 1. 修改sql/handler.h添加表说明
 
@@ -204,7 +204,7 @@ Create Table: CREATE TEMPORARY TABLE `DISKUSAGE` (
 ) ENGINE=MEMORY DEFAULT CHARSET=utf8
 ```
 
-## 添加DBXP_SELECT查询
+## 四. 添加DBXP_SELECT查询
 
 ### 1.修改sql/lex.h添加DBXP_SELECT关键字
 
