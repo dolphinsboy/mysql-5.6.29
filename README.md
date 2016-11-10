@@ -416,3 +416,257 @@ mysql> DBXP_SELECT distinct * from t where a=1 and b=2;
 1 row in set (0.00 sec)
 ```
 
+## 五. 构建查询树 
+
+### 1. 在sql目录增加如下文件
+
+```
+query_tree.h
+query_tree.cc
+sql_dbxp_parse.cc
+```
+
+### 2. 查询树
+
+**query_tree.h**
+
+```c
+#include "sql_priv.h"
+#include "sql_class.h"
+#include "table.h"
+#include "records.h"
+
+class Query_tree
+{
+    public:
+        enum query_node_type
+        {
+            qntUndefined = 0,
+            qntRestrict = 1,
+            qntProject = 2,
+            qntJoin = 3,
+            qntSort = 4,
+            qntDistinct = 5
+        };
+        enum join_con_type
+        {
+            jcUN = 0,
+            jcNA = 1,
+            jcON = 2,
+            jcUS = 3
+        };
+        enum type_join
+        {
+            jnUNKNOWN = 0,
+            jnINNER = 1,
+            jnLEFTOUTER = 2,
+            jnRIGHTOUTER = 3,
+            jnFULLOUTER = 4,
+            jnCROSSPRODUCT = 5,
+            jnUNION = 6,
+            jnINTERSET = 7
+        };
+        enum AggregateType
+        {
+            atNONE = 0,
+            atCOUNT = 1
+        };
+        struct query_node
+        {
+            query_node();
+            ~query_node();
+            int nodeid;
+            int parent_nodeid;
+            bool sub_query;
+            bool child;
+            query_node_type node_type;
+            type_join join_type;
+            join_con_type join_cond;
+            Item *where_expr;
+            Item *join_expr;
+            TABLE_LIST *relations[4];
+            bool preempt_pipeline;
+            List<Item> *fields;
+            query_node *left;
+            query_node *right;
+        };
+        query_node *root;
+        ~Query_tree(void);
+        void ShowPlan(query_node *QN, bool PrintOnRight);
+};
+```
+
+**query__tree.cc**
+
+```c
+#include "query_tree.h"
+
+Query_tree::query_node::query_node()
+{
+    where_expr = NULL;
+    join_expr = NULL;
+    child = false;
+    join_cond = Query_tree::jcUN;
+    join_type = Query_tree::jnUNKNOWN;
+    left = NULL;
+    right = NULL;
+    nodeid = -1;
+    node_type = Query_tree::qntUndefined;
+    sub_query = false;
+    parent_nodeid = -1;
+}
+
+Query_tree::query_node::~query_node()
+{
+    if(left)
+        delete left;
+    if(right)
+        delete right;
+}
+
+Query_tree::~Query_tree(void)
+{
+    if(root)
+        delete root;
+}
+
+```
+
+**sql_dbxp_parse.cc**
+
+```c
+#include "query_tree.h"
+
+Query_tree *build_query_tree(THD *thd, LEX *lex, TABLE_LIST *tables)
+{
+    DBUG_ENTER("build_query_tree");
+    Query_tree *qt = new Query_tree();
+    Query_tree::query_node *qn = new Query_tree::query_node();
+
+    TABLE_LIST *table;
+    int i = 0;
+    int num_tables = 0;
+
+    qn->parent_nodeid = -1;
+    qn->child = false;
+    qn->join_type = (Query_tree::type_join)0;
+    qn->nodeid = 0;
+    qn->node_type = (Query_tree::query_node_type)2;
+    qn->left = 0;
+    qn->right = 0;
+
+    i = 0;
+    for(table = tables; table; table = table->next_local)
+    {
+        num_tables++;
+        qn->relations[i] = table;
+        i++;
+    }
+
+    qn->fields = &lex->select_lex.item_list;
+    if(num_tables>0)
+    {
+        for(table = tables; table; table = table->next_local)
+        {
+            if(((Item*)table->join_cond() != 0) && (qn->join_expr == 0))
+                qn->join_expr = (Item*)table->join_cond();
+        }
+    }
+
+    qn->where_expr = lex->select_lex.where;
+    qt->root = qn;
+    DBUG_RETURN(qt);
+}
+
+int DBXP_select_command(THD *thd)
+{
+    DBUG_ENTER("DBXP_select_command");
+    Query_tree *qt = build_query_tree(thd, thd->lex,
+            (TABLE_LIST*)thd->lex->select_lex.table_list.first);
+
+    List<Item> field_list;
+    Protocol *protocol = thd->protocol;
+    field_list.push_back(
+            new Item_empty_string(
+                "Database Experiment Project (DBXP)", 
+                40));
+    field_list.push_back(new Item_return_int("Id",2, MYSQL_TYPE_LONGLONG));
+    if(protocol->send_result_set_metadata(&field_list,
+                Protocol::SEND_NUM_ROWS|Protocol::SEND_EOF))
+        DBUG_RETURN(TRUE);
+    protocol->prepare_for_resend();
+    protocol->store("Query tree was build.", system_charset_info);
+    protocol->store((longlong)qt->root->nodeid);
+
+    if(protocol->write())
+        DBUG_RETURN(TRUE);
+    my_eof(thd);
+    DBUG_RETURN(0);
+}
+
+int DBXP_explain_select_command(THD *thd)
+{
+
+    DBUG_ENTER("DBXP_explain_select_command");
+    DBUG_RETURN(0);
+}
+
+```
+
+### 3.在sql/sql_parse.cc中mysql_execute_command添加相关lex->sql_command
+
+**先添加函数声明**
+
+```c
+/*BEGIN GUOSONG MODIFICATION*/
+int DBXP_select_command(THD *thd);
+int DBXP_explain_select_command(THD *thd);
+/*END GUOSONG MODIFICATION*/
+```
+
+**添加相关lex->sql_command相关处理动作**
+
+```c
+/*BEGIN GUOSONG DBXP MODIFICATION*/
+  case SQLCOM_DBXP_SELECT:
+  {
+    res = DBXP_select_command(thd);
+    if(res)
+    ¦   goto error;
+    break;
+  }
+  case SQLCOM_DBXP_EXPLAIN_SELECT:
+  {
+    res = DBXP_explain_select_command(thd);
+    if(res)
+    ¦   goto error;
+    break;
+  }
+/*END GUOSONG DBXP MODIFICATION*/
+```
+### 4.编译
+
+**修改sql/CMakeList.txt**
+
+```c
+SET(SQL_SHARED_SOURCES
+	...
+	#BEGIN GUOSONG MODIFICATION
+  	sql_dbxp_parse.cc
+    query_tree.cc
+    #END GUOSONG MODIFICATION
+)
+```
+
+### 5.Demo
+
+```sql
+
+mysql> DBXP_SELECT * from t;        
++------------------------------------+----+
+| Database Experiment Project (DBXP) | Id |
++------------------------------------+----+
+| Query tree was build.              |  0 |
++------------------------------------+----+
+1 row in set (0.00 sec)
+```

@@ -8613,12 +8613,43 @@ opt_ignore_leaves:
 
 /*BEGIN GUOSONG DBXP MODIFICATION*/
 dbxp_select:
-        DBXP_SELECT_SYM
+        DBXP_SELECT_SYM DBXP_select_options DBXP_select_item_list
+            DBXP_select_from
         {
             LEX *lex = Lex;
             lex->sql_command = SQLCOM_DBXP_SELECT;
         };
-
+DBXP_select_options:
+        | DISTINCT
+        {
+            Select->options |= SELECT_DISTINCT;
+        };
+DBXP_select_item_list:
+        | DBXP_select_item_list ',' select_item
+        | select_item
+        | '*'
+        {
+            THD *thd = YYTHD;
+            Item *item = new(thd->mem_root)
+                    Item_field(&thd->lex->current_select->context,
+                               NULL, NULL, "*");
+            if(item == NULL)
+                MYSQL_YYABORT;
+            if(add_item_to_list(thd,item))
+                MYSQL_YYABORT;
+            (thd->lex->current_select->with_wild)++;
+        };
+DBXP_select_from:
+        FROM join_table_list DBXP_where_clause{};
+DBXP_where_clause:
+        /*empty*/ {Select->where=0;}
+        | WHERE expr
+        {
+            SELECT_LEX *select = Select;
+            select->where  = $2;
+            if($2)
+                $2->top_level_item();
+        };
 /*END GUOSONG DBXP MODIFICATION*/
 select:
           select_init
@@ -12821,6 +12852,16 @@ describe:
           { Lex->describe|= DESCRIBE_NORMAL; }
           explanable_command
           { Lex->select_lex.options|= SELECT_DESCRIBE; }
+        /*BEGIN GUOSONG MODIFICATION*/
+        | describe_command DBXP_SELECT_SYM DBXP_select_options DBXP_select_item_list
+                DBXP_select_from
+          {
+            LEX *lex = Lex;
+            lex->sql_command = SQLCOM_DBXP_EXPLAIN_SELECT;
+            lex->select_lex.db = 0;
+            lex->verbose = 0;
+          }
+        /*END GUOSONG MODIFICATION*/
         ;
 
 explanable_command:

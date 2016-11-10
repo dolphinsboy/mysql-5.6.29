@@ -184,6 +184,10 @@ SET(SQL_SHARED_SOURCES
   tztime.cc
   uniques.cc
   unireg.cc
+  #BEGIN GUOSONG MODIFICATION
+  sql_dbxp_parse.cc
+  query_tree.cc
+  #END GUOSONG MODIFICATION
 )
 
 SET(SQL_EXPORTED_SOURCES ${SQL_SHARED_SOURCES} PARENT_SCOPE)

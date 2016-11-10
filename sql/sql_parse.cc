@@ -129,6 +129,11 @@ static bool check_show_access(THD *thd, TABLE_LIST *table);
 static void sql_kill(THD *thd, ulong id, bool only_kill_query);
 static bool lock_tables_precheck(THD *thd, TABLE_LIST *tables);
 
+/*BEGIN GUOSONG MODIFICATION*/
+int DBXP_select_command(THD *thd);
+int DBXP_explain_select_command(THD *thd);
+/*END GUOSONG MODIFICATION*/
+
 const char *any_db="*any*";	// Special symbol for check_access
 
 const LEX_STRING command_name[]={
@@ -2661,28 +2666,16 @@ mysql_execute_command(THD *thd)
 /*BEGIN GUOSONG DBXP MODIFICATION*/
   case SQLCOM_DBXP_SELECT:
   {
-    List<Item> field_list;
-    Protocol *protocol = thd->protocol;
-    
-    /*build fields to client*/
-    field_list.push_back(new Item_int("Id",21));
-    field_list.push_back(new Item_empty_string("LastName", 40));
-    field_list.push_back(new Item_empty_string("FirstName",20));
-    field_list.push_back(new Item_empty_string("Gender",2));
-    if(protocol->send_result_set_metadata(&field_list,
-                Protocol::SEND_NUM_ROWS| Protocol::SEND_EOF))
-        DBUG_RETURN(TRUE);
-
-    protocol->prepare_for_resend();
-
-    protocol->store((long long)3);
-    protocol->store("Guo", system_charset_info);
-    protocol->store("Song", system_charset_info);
-    protocol->store("M", system_charset_info);
-    if(protocol->write())
-        DBUG_RETURN(TRUE);
-    
-    my_eof(thd);
+    res = DBXP_select_command(thd);
+    if(res)
+        goto error;
+    break;
+  }
+  case SQLCOM_DBXP_EXPLAIN_SELECT:
+  {
+    res = DBXP_explain_select_command(thd);
+    if(res)
+        goto error;
     break;
   }
 /*END GUOSONG DBXP MODIFICATION*/
