@@ -496,7 +496,7 @@ class Query_tree
 };
 ```
 
-**query__tree.cc**
+**query_tree.cc**
 
 ```c
 #include "query_tree.h"
@@ -670,3 +670,91 @@ mysql> DBXP_SELECT * from t;
 +------------------------------------+----+
 1 row in set (0.00 sec)
 ```
+
+### 6.添加EXPLAIN
+
+```sql
+mysql> explain dbxp_select * from t;
+```
+
+#### 6.1 修改sql/sql_cmd.h中添加SQLCOM_DBXP_EXPLAIN_SELECT
+
+```c
+enum enum_sql_command {
+    ...
+  /*BEGIN GUOSONG MODIFICATION*/
+  SQLCOM_SHOW_DISK_USAGE,
+  SQLCOM_DBXP_SELECT,
+  SQLCOM_DBXP_EXPLAIN_SELECT,
+  /*END GUOSONG MODIFICATION*/
+    ...
+```
+
+#### 6.2 修改sql/sql_yacc.yy添加explain分支
+
+```
+describe:
+    ¦   ¦ describe_command table_ident
+    ¦   ¦ {
+    ¦   ¦   LEX *lex= Lex;
+    ¦   ¦   mysql_init_select(lex);
+    ¦   ¦   lex->current_select->parsing_place= SELECT_LIST;
+    ¦   ¦   lex->sql_command= SQLCOM_SHOW_FIELDS;
+    ¦   ¦   lex->select_lex.db= 0;
+    ¦   ¦   lex->verbose= 0;
+    ¦   ¦   if (prepare_schema_table(YYTHD, lex, $2, SCH_COLUMNS))
+    ¦   ¦   ¦ MYSQL_YYABORT;
+    ¦   ¦ }   
+    ¦   ¦ opt_describe_column
+    ¦   ¦ {
+    ¦   ¦   Select->parsing_place= NO_MATTER;
+    ¦   ¦ }   
+    ¦   | describe_command opt_extended_describe
+    ¦   ¦ { Lex->describe|= DESCRIBE_NORMAL; }
+    ¦   ¦ explanable_command
+    ¦   ¦ { Lex->select_lex.options|= SELECT_DESCRIBE; }
+    ¦   /*BEGIN GUOSONG MODIFICATION*/
+    ¦   | describe_command DBXP_SELECT_SYM DBXP_select_options DBXP_select_item_list
+    ¦   ¦   ¦   DBXP_select_from
+    ¦   ¦ {
+    ¦   ¦   LEX *lex = Lex;
+    ¦   ¦   lex->sql_command = SQLCOM_DBXP_EXPLAIN_SELECT;
+    ¦   ¦   lex->select_lex.db = 0;
+    ¦   ¦   lex->verbose = 0;
+    ¦   ¦ }   
+    ¦   /*END GUOSONG MODIFICATION*/
+    ¦   ;
+```
+
+#### 6.3 修改sql/sql_parse.cc中的mysql_execute_command的case分支
+
+先声明函数:
+
+```c
+/*BEGIN GUOSONG MODIFICATION*/
+int DBXP_select_command(THD *thd);
+int DBXP_explain_select_command(THD *thd);
+/*END GUOSONG MODIFICATION*/
+```
+
+添加case处理分支:
+```c
+/*BEGIN GUOSONG DBXP MODIFICATION*/
+  case SQLCOM_DBXP_SELECT:
+  { 
+    res = DBXP_select_command(thd);
+    if(res)
+    ¦   goto error;
+    break;
+  } 
+  case SQLCOM_DBXP_EXPLAIN_SELECT:
+  { 
+    res = DBXP_explain_select_command(thd);
+    if(res)
+    ¦   goto error;
+    break;
+  }
+/*END GUOSONG DBXP MODIFICATION*/
+```
+
+
